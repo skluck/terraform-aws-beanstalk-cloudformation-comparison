@@ -1,0 +1,4 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'IAC Comparison - Elastic Beanstalk Application'
+
+# todo
