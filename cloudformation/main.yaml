@@ -1,4 +1,641 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'IAC Comparison - Elastic Beanstalk Application'
 
-# todo
+################################################################################
+# inputs
+################################################################################
+
+Parameters:
+
+  ApplicationName:
+    Type: String
+    Description: 'Name for the Application'
+    ConstraintDescription: 'Alphanumeric or (hyphen). Must begin with a letter and end with a letter or number.'
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9\-]+[a-zA-Z0-9]$'
+
+  EnvironmentName:
+    Type: String
+    Description: 'Application environment'
+    Default: 'dev'
+    AllowedValues:
+      - 'dev'
+      - 'test'
+      - 'beta'
+      - 'prod'
+
+  # Software
+
+  BeanstalkPlatform:
+    Type: String
+    Description: 'Beanstalk platform type (Solution Stack)'
+    Default: 'php7'
+    AllowedValues:
+      - 'docker'
+      - 'docker-esc'
+      - 'dotnet'
+      - 'dotnet-wsc'
+      - 'java8'
+      - 'java8-tomcat'
+      - 'go'
+      - 'node'
+      - 'php7'
+      - 'python3'
+
+  BeanstalkTier:
+    Type: String
+    Description: 'Is this a web app or background worker?'
+    Default: 'web'
+    AllowedValues: [ 'web', 'worker' ]
+
+  InstanceSize:
+    Type: String
+    Description: 'Select the size of the instances to use in the ASG'
+    Default: 't2.small'
+    AllowedValues:
+      - 't2.micro'
+      - 't2.small'
+      - 't2.medium'
+      - 't2.large'
+      - 't2.xlarge'
+
+  SSHKeypair:
+    # Type: 'AWS::EC2::KeyPair::KeyName'
+    Type: String
+    Default: ''
+    Description: '[Optional] Specify an EC2 keypair to allow SSH access.'
+
+  # Load balancing
+
+  HealthCheckPath:
+    Type: String
+    Default: '/'
+    AllowedPattern: '^\/.*'
+    Description: 'Path on your web app to which to use for health checks (such as /healthcheck or /status).'
+
+  SSLCertificateArn:
+    Type: String
+    MinLength: 0
+    MaxLength: 2048
+    Default: ""
+    Description: '[Optional] SSL/TLS certificate ARN for the Load Balancer. Required to enable HTTPS.'
+
+  # Rolling deployments and managed updates
+
+  DeploymentPolicy:
+    Type: String
+    Default: 'AllAtOnce'
+    AllowedValues: [ 'Rolling', 'AllAtOnce' ]
+    Description: 'Deploy new versions or configuration changes to all instances at once or rolling? (Use rolling for prod!)'
+
+  RollingUpdateMaxBatchSize:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 100
+    Description: 'The maximum number of instances that can have configuration updated simultaneously (1-100)'
+
+  # Auto scale
+
+  AutoScaleGroupMinSize:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10000
+    Description: 'Minimum number of instances in the Auto Scaling group. (1-10000)'
+
+  AutoScaleGroupMaxSize:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    MaxValue: 10000
+    Description: 'Maximum number of instances in the Auto Scaling group. (1-10000)'
+
+  AutoScaleTriggerLowerThreshold:
+    Type: Number
+    Default: 20
+    MinValue: 0
+    MaxValue: 100
+    Description: 'Once average CPU load hits this percentage, a running instance will be removed (1-100)'
+
+  AutoScaleTriggerUpperThreshold:
+    Type: Number
+    Default: 80
+    MinValue: 0
+    MaxValue: 100
+    Description: 'Once average CPU load hits this percentage, a running instance will be added (1-100)'
+
+  # Network
+
+  VPCID:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: 'Which VPC should this application be deployed in?'
+
+  PrivateInstanceSubnets:
+    Type: 'List<AWS::EC2::Subnet::Id>'
+    Description: 'Select 2 private subnets for instances'
+
+  LoadBalancerSubnets:
+    Type: 'List<AWS::EC2::Subnet::Id>'
+    Description: 'Select 2 private or public subnets for load balancers'
+
+  LoadBalancerScheme:
+    Type: String
+    Default: 'internal'
+    AllowedValues: [ 'internal', 'external' ]
+    Description: 'Should the ALB allow access over the public internet? (internal or external)'
+
+  LoadBalancerAdditionalSecurityGroups:
+    Type: 'CommaDelimitedList'
+    # Type: 'List<AWS::EC2::SecurityGroup::Id>'
+    Default: ""
+    Description: 'Attach additional security groups to the ALB'
+
+################################################################################
+# metadata (cf interface)
+################################################################################
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+
+      - Label: { default: 'Basic configuration' }
+        Parameters:
+          - ApplicationName
+          - EnvironmentName
+
+      - Label: { default: 'Software' }
+        Parameters:
+          - BeanstalkPlatform
+          - BeanstalkTier
+          - InstanceSize
+          - SSHKeypair
+
+      - Label: { default: 'Load balancing' }
+        Parameters:
+          - HealthCheckPath
+          - SSLCertificateArn
+
+      - Label: { default: 'Rolling updates and deployments' }
+        Parameters:
+          - DeploymentPolicy
+          - RollingUpdateMaxBatchSize
+
+      - Label: { default: 'Capacity - Auto scaling' }
+        Parameters:
+          - AutoScaleGroupMinSize
+          - AutoScaleGroupMaxSize
+          - AutoScaleTriggerLowerThreshold
+          - AutoScaleTriggerUpperThreshold
+
+      - Label: { default: 'Network' }
+        Parameters:
+          - VPCID
+          - PrivateInstanceSubnets
+          - LoadBalancerSubnets
+          - LoadBalancerScheme
+          - LoadBalancerAdditionalSecurityGroups
+
+    ParameterLabels:
+      ApplicationName:      { default: 'Application name' }
+      EnvironmentName:      { default: 'Environment name' }
+
+      BeanstalkPlatform:    { default: 'Beanstalk platform' }
+      BeanstalkTier:        { default: 'Beanstalk type' }
+      InstanceSize:         { default: 'EC2 instance type' }
+      SSHKeypair:           { default: 'SSH keypair' }
+
+      HealthCheckPath:      { default: 'Healthcheck URL' }
+      SSLCertificateArn:    { default: 'SSL certificate' }
+
+      DeploymentPolicy:                     { default: 'Policy for deployments' }
+      RollingUpdateMaxBatchSize:            { default: 'Max instances to simultaneously update (rolling only)' }
+
+      AutoScaleGroupMinSize:                { default: 'Minimum instances' }
+      AutoScaleGroupMaxSize:                { default: 'Maximum instances' }
+      AutoScaleTriggerLowerThreshold:       { default: 'Lowest allowed CPU load (%) when instances are removed' }
+      AutoScaleTriggerUpperThreshold:       { default: 'Highest allowed CPU load (%) when instances are added' }
+
+      VPCID:                                { default: 'VPC' }
+      PrivateInstanceSubnets:               { default: 'Instance subnet IDs' }
+      LoadBalancerSubnets:                  { default: 'Load Balancer subnet IDs' }
+      LoadBalancerScheme:                   { default: 'Load Balancer visibility' }
+      LoadBalancerAdditionalSecurityGroups: { default: 'Load Balancer security groups' }
+
+################################################################################
+# mappings
+################################################################################
+
+Mappings:
+
+  StackMap:
+    docker:         { stackName: '64bit Amazon Linux 2017.09 v2.8.4 running Docker 17.09.1-ce' }
+    docker-ecs:     { stackName: '64bit Amazon Linux 2017.09 v2.8.4 running Multi-container Docker 17.09.1-ce (Generic)' }
+    dotnet:         { stackName: '64bit Windows Server 2016 v1.2.0 running IIS 10.0' }
+    dotnet-wsc:     { stackName: '64bit Windows Server Core 2016 v1.2.0 running IIS 10.0' }
+    java8-tomcat:   { stackName: '64bit Amazon Linux 2017.09 v2.7.5 running Tomcat 8 Java 8' }
+    java8:          { stackName: '64bit Amazon Linux 2017.09 v2.6.5 running Java 8' }
+    go:             { stackName: '64bit Amazon Linux 2017.09 v2.7.5 running Go 1.9' }
+    node:           { stackName: '64bit Amazon Linux 2017.09 v4.4.4 running Node.js' }
+    php7:           { stackName: '64bit Amazon Linux 2017.09 v2.6.4 running PHP 7.1' }
+    python3:        { stackName: '64bit Amazon Linux 2017.09 v2.6.4 running Python 3.6' }
+
+    # old platforms
+    php7-0:         { stackName: '64bit Amazon Linux 2017.09 v2.6.4 running PHP 7.0' }
+    python2:        { stackName: '64bit Amazon Linux 2017.09 v2.6.4 running Python 2.7' }
+
+  AWSRegionToBeanstalkHostedZoneId:
+    us-east-1: { HostedZoneId: 'Z117KPS5GTRQ2G' }
+    us-east-2: { HostedZoneId: 'Z14LCN19Q5QHIC' }
+    us-west-1: { HostedZoneId: 'Z1LQECGX5PH1X' }
+    us-west-2: { HostedZoneId: 'Z38NKT9BP95V3O' }
+
+  TierTypeMap:
+    web:      { tierType: 'Standard' }
+    worker:   { tierType: 'SQS/HTTP' }
+
+  TierNameMap:
+    web:      { tierName: 'WebServer' }
+    worker:   { tierName: 'Worker' }
+
+################################################################################
+# conditions
+################################################################################
+
+Conditions:
+  isWindowsPlatform:
+    Fn::Or:
+    - !Equals [ !Ref BeanstalkPlatform, 'dotnet' ]
+    - !Equals [ !Ref BeanstalkPlatform, 'dotnet-wsc' ]
+
+  isRollingUpdateEnabled:
+    Fn::Not: [ !Equals [ !Ref DeploymentPolicy, 'AllAtOnce' ] ]
+
+  isTLSEnabled:
+    Fn::Not: [ !Equals [ !Ref SSLCertificateArn, '' ] ]
+
+################################################################################
+# resources
+################################################################################
+
+Resources:
+
+  BeanstalkApplication:
+    Type: 'AWS::ElasticBeanstalk::Application'
+
+    Properties:
+      ApplicationName: !Sub "${ApplicationName}"
+
+      ResourceLifecycleConfig:
+        ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-elasticbeanstalk-service-role"
+        VersionLifecycleConfig:
+          MaxCountRule:
+            DeleteSourceFromS3: true
+            Enabled: true
+            MaxCount: 7
+    DependsOn: [ InstanceRole ]
+
+  BeanstalkEnvironment:
+    Type: 'AWS::ElasticBeanstalk::Environment'
+
+    Properties:
+      ApplicationName: !Ref BeanstalkApplication
+
+      CNAMEPrefix: !Sub "${ApplicationName}-${EnvironmentName}"
+      SolutionStackName: !FindInMap [ StackMap, !Ref BeanstalkPlatform, stackName ]
+      Tier:
+        Name: !FindInMap [ TierNameMap, !Ref BeanstalkTier, tierName ]
+        Type: !FindInMap [ TierTypeMap, !Ref BeanstalkTier, tierType ]
+
+      OptionSettings:
+
+        ########################################################################
+        # Software
+        ########################################################################
+
+        - Namespace: 'aws:elasticbeanstalk:cloudwatch:logs'
+          OptionName: 'StreamLogs'
+          Value: true
+
+        - Namespace: 'aws:elasticbeanstalk:cloudwatch:logs'
+          OptionName: 'DeleteOnTerminate'
+          Value: true
+
+        - Namespace: 'aws:elasticbeanstalk:cloudwatch:logs'
+          OptionName: 'RetentionInDays'
+          Value: 14
+
+        ########################################################################
+        # Instances
+        ########################################################################
+
+        - Namespace: 'aws:autoscaling:launchconfiguration'
+          OptionName: 'InstanceType'
+          Value: !Ref InstanceSize
+
+        ########################################################################
+        # Capacity - Auto Scaling Group
+        ########################################################################
+
+        - Namespace: 'aws:elasticbeanstalk:environment'
+          OptionName: 'EnvironmentType'
+          Value: 'LoadBalanced'
+
+        - Namespace: 'aws:elasticbeanstalk:environment'
+          OptionName: 'LoadBalancerType'
+          Value: 'application'
+
+        - Namespace: 'aws:autoscaling:asg'
+          OptionName: 'Availability Zones'
+          Value: 'Any 2'
+
+        - Namespace: 'aws:autoscaling:asg'
+          OptionName: 'MinSize'
+          Value: !Ref AutoScaleGroupMinSize
+
+        - Namespace: 'aws:autoscaling:asg'
+          OptionName: 'MaxSize'
+          Value: !Ref AutoScaleGroupMaxSize
+
+        ########################################################################
+        # Capacity - Scaling triggers
+        ########################################################################
+
+        - Namespace: 'aws:autoscaling:trigger'
+          OptionName: 'MeasureName'
+          Value: 'CPUUtilization'
+
+        - Namespace: 'aws:autoscaling:trigger'
+          OptionName: 'Statistic'
+          Value: 'Average'
+
+        - Namespace: 'aws:autoscaling:trigger'
+          OptionName: 'Unit'
+          Value: 'Percent'
+
+        - Namespace: 'aws:autoscaling:trigger'
+          OptionName: 'LowerThreshold'
+          Value: !Ref AutoScaleTriggerLowerThreshold
+
+        - Namespace: 'aws:autoscaling:trigger'
+          OptionName: 'UpperThreshold'
+          Value: !Ref AutoScaleTriggerUpperThreshold
+
+        ########################################################################
+        # Load Balancer
+        ########################################################################
+
+        - Namespace: 'aws:elbv2:listener:default'
+          OptionName: 'ListenerEnabled'
+          Value: !If [ isTLSEnabled, false, true ]
+
+        - Namespace: 'aws:elbv2:listener:443'
+          OptionName: 'ListenerEnabled'
+          Value: !If [ isTLSEnabled, true, false ]
+
+        - Namespace: 'aws:elbv2:listener:443'
+          OptionName: 'Protocol'
+          Value: 'HTTPS'
+
+        - Namespace: 'aws:elbv2:listener:443'
+          OptionName: 'SSLCertificateArns'
+          Value: !Ref SSLCertificateArn
+
+        ########################################################################
+        # Rolling updates and deployments
+        ########################################################################
+
+        - Namespace: 'aws:elasticbeanstalk:command'
+          OptionName: DeploymentPolicy
+          Value: !Ref DeploymentPolicy
+
+        - Namespace: 'aws:elasticbeanstalk:command'
+          OptionName: BatchSizeType
+          Value: 'Percentage'
+
+        - Namespace: 'aws:elasticbeanstalk:command'
+          OptionName: BatchSize
+          Value: '35'
+
+        - Namespace: 'aws:autoscaling:updatepolicy:rollingupdate'
+          OptionName: RollingUpdateEnabled
+          Value: !If [ isRollingUpdateEnabled, true, false ]
+
+        - Namespace: 'aws:autoscaling:updatepolicy:rollingupdate'
+          OptionName: RollingUpdateType
+          Value: 'Health'
+
+        - Namespace: 'aws:autoscaling:updatepolicy:rollingupdate'
+          OptionName: MinInstancesInService
+          Value: '1'
+
+        - Namespace: 'aws:autoscaling:updatepolicy:rollingupdate'
+          OptionName: MaxBatchSize
+          Value: !Ref RollingUpdateMaxBatchSize
+
+        ########################################################################
+        # Security
+        ########################################################################
+
+        - Namespace: 'aws:elasticbeanstalk:environment'
+          OptionName: 'ServiceRole'
+          Value: 'aws-elasticbeanstalk-service-role'
+
+        - Namespace: 'aws:autoscaling:launchconfiguration'
+          OptionName: 'IamInstanceProfile'
+          Value: !GetAtt 'InstanceProfile.Arn'
+
+        - Namespace: 'aws:autoscaling:launchconfiguration'
+          OptionName: 'EC2KeyName'
+          Value: !Ref SSHKeypair
+
+        ########################################################################
+        # Monitoring
+        ########################################################################
+
+        - Namespace: 'aws:elasticbeanstalk:healthreporting:system'
+          OptionName: 'SystemType'
+          Value: !If [ isWindowsPlatform, 'basic', 'enhanced' ]
+
+        # The Application Load Balancer health check does not take into account the Elastic Beanstalk health check path
+        # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environments-cfg-applicationloadbalancer.html
+        # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environments-cfg-applicationloadbalancer.html#alb-default-process.config
+
+        - Namespace: 'aws:elasticbeanstalk:application'
+          OptionName: 'Application Healthcheck URL'
+          Value: !Ref HealthCheckPath
+
+        - Namespace: 'aws:elasticbeanstalk:environment:process:default'
+          OptionName: 'HealthCheckPath'
+          Value: !Ref HealthCheckPath
+
+        - Namespace: 'aws:elasticbeanstalk:environment:process:default'
+          OptionName: 'Port'
+          Value: 80
+
+        - Namespace: 'aws:elasticbeanstalk:environment:process:default'
+          OptionName: 'Protocol'
+          Value: 'HTTP'
+
+        ########################################################################
+        # Managed updates
+        ########################################################################
+
+        - Namespace: 'aws:elasticbeanstalk:managedactions'
+          OptionName: 'ManagedActionsEnabled'
+          Value: !If [ isWindowsPlatform, false, true ]
+
+        - Namespace: 'aws:elasticbeanstalk:managedactions'
+          OptionName: 'PreferredStartTime'
+          Value: 'Sun:10:00'
+
+        - Namespace: 'aws:elasticbeanstalk:managedactions:platformupdate'
+          OptionName: 'UpdateLevel'
+          Value: 'minor'
+
+        - Namespace: 'aws:elasticbeanstalk:managedactions:platformupdate'
+          OptionName: 'InstanceRefreshEnabled'
+          Value: true
+
+        ########################################################################
+        # Notifications
+        ########################################################################
+        # empty for now
+
+        ########################################################################
+        # Network
+        ########################################################################
+
+        - Namespace: 'aws:ec2:vpc'
+          OptionName: 'VPCId'
+          Value: !Ref VPCID
+
+        - Namespace: 'aws:ec2:vpc'
+          OptionName: 'Subnets'
+          Value: !Join [',', !Ref PrivateInstanceSubnets]
+
+        - Namespace: 'aws:ec2:vpc'
+          OptionName: 'ELBSubnets'
+          Value: !Join [',', !Ref LoadBalancerSubnets]
+
+        - Namespace: 'aws:ec2:vpc'
+          OptionName: 'ELBScheme'
+          Value: !Ref LoadBalancerScheme
+
+        - Namespace: 'aws:ec2:vpc'
+          OptionName: 'AssociatePublicIpAddress'
+          Value: false
+
+        - Namespace: 'aws:elbv2:loadbalancer'
+          OptionName: 'ManagedSecurityGroup'
+          Value: !Ref LoadBalancerSecurityGroup
+
+        - Namespace: 'aws:elbv2:loadbalancer'
+          OptionName: 'SecurityGroups'
+          Value:
+            Fn::Join:
+              - ','
+              - [ !GetAtt 'LoadBalancerSecurityGroup.GroupId', !Join [',', !Ref 'LoadBalancerAdditionalSecurityGroups'] ]
+
+        - Namespace: 'aws:autoscaling:launchconfiguration'
+          OptionName: 'SSHSourceRestriction'
+          Value: 'tcp,22,22,127.0.0.1/32'
+
+        - Namespace: 'aws:autoscaling:launchconfiguration'
+          OptionName: 'SecurityGroups'
+          Value: !GetAtt 'InstanceSecurityGroup.GroupId'
+
+        ########################################################################
+        # Database
+        ########################################################################
+        # empty for now
+
+  InstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+
+    Properties:
+      GroupDescription: !Sub "EC2 for ${ApplicationName}-${EnvironmentName}"
+      VpcId: !Ref VPCID
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: 'Name'
+          Value: '${ApplicationName}-${EnvironmentName}'
+
+  LoadBalancerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+
+    Properties:
+      GroupDescription: !Sub "ALB for ${ApplicationName}-${EnvironmentName}"
+      VpcId: !Ref VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: 'Name'
+          Value: '${ApplicationName}-${EnvironmentName}'
+
+  InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+
+    Properties:
+      Path: '/'
+      Roles: [!Ref InstanceRole]
+
+  InstanceRole:
+    Type: 'AWS::IAM::Role'
+
+    Properties:
+      Path: '/'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSElasticBeanstalkWebTier'
+        - 'arn:aws:iam::aws:policy/AWSElasticBeanstalkWorkerTier'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ['ec2.amazonaws.com'] }
+            Action: ['sts:AssumeRole']
+
+################################################################################
+# outputs
+################################################################################
+
+Outputs:
+  InstanceRole:
+    Description: 'Instance Role ARN'
+    Value: !GetAtt 'InstanceRole.Arn'
+
+  InstanceSecurityGroup:
+    Description: 'Security Group ID of instances'
+    Value: !GetAtt 'InstanceSecurityGroup.GroupId'
+
+  LoadBalancerSecurityGroup:
+    Description: 'Security Group ID of ALB'
+    Value: !GetAtt 'LoadBalancerSecurityGroup.GroupId'
+
+  ElasticBeanstalkApplication:
+    Description: 'Elastic Beanstalk application'
+    Value: !Ref BeanstalkApplication
+
+  ElasticBeanstalkEnvironment:
+    Description: 'Elastic Beanstalk environment'
+    Value: !Ref BeanstalkEnvironment
+
+  # https://blog.jayway.com/2016/06/02/route53-configuration-elastic-beanstalk
+  ElasticBeanstalkURL:
+    Description: 'Elastic Beanstalk environment URL'
+    Value: !Sub 'http://${ApplicationName}-${EnvironmentName}.${AWS::Region}.elasticbeanstalk.com'
+
+  ElasticBeanstalkELBEndpoint:
+    Description: 'Load Balancer endpoint'
+    Value: !GetAtt 'BeanstalkEnvironment.EndpointURL'
