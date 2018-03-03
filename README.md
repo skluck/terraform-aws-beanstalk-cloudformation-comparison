@@ -20,8 +20,10 @@ Features needed:
 - Create dynamic amount of environments (`1..n`)
 - Ability to attach additional security groups
 - Ability to add additional permissions or policies to IAM role
-- Support multiple AZ configurations (`1..3`)
-- Support for simple HTTP or with HTTPS (Using AWS ACM certs)
+- Multiple AZ configurations (`1..3`)
+- Simple HTTP or with HTTPS (Using AWS ACM certs)
+- Public and private beanstalk environments
+- Can control network ingress using CIDRs
 
 #### Notes
 
