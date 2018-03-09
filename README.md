@@ -28,7 +28,8 @@ Features needed:
 #### Notes
 
 Cloudformation
-- tbd
+- Cannot be updated without changing CNAME
+- CNAME must be manually constructed - it is not available on the beanstalk environment resource
 - tbd
 
 Terraform
